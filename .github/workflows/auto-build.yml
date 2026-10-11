@@ -1,0 +1,80 @@
+name: Auto build Animiru
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  UPSTREAM: animiruorg/Animiru
+  BRANCH: animiru-new-main
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    outputs:
+      sha: ${{ steps.c.outputs.sha }}
+      short: ${{ steps.c.outputs.short }}
+      new: ${{ steps.c.outputs.new }}
+    steps:
+      - id: c
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          SHA=$(git ls-remote https://github.com/$UPSTREAM.git refs/heads/$BRANCH | cut -f1)
+          SHORT=${SHA:0:7}
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
+          echo "short=$SHORT" >> $GITHUB_OUTPUT
+          if gh release view "build-$SHORT" --repo "${{ github.repository }}" >/dev/null 2>&1 \
+             && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "new=false" >> $GITHUB_OUTPUT
+          else
+            echo "new=true" >> $GITHUB_OUTPUT
+          fi
+
+  build:
+    needs: check
+    if: needs.check.outputs.new == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.UPSTREAM }}
+          ref: ${{ needs.check.outputs.sha }}
+
+      - uses: actions/setup-java@v4
+        with:
+          java-version-file: .github/.java-version
+          distribution: temurin
+
+      - name: Placeholder client_secrets.json
+        run: |
+          mkdir -p app/src/main/assets
+          [ -f app/src/main/assets/client_secrets.json ] || echo '{}' > app/src/main/assets/client_secrets.json
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build
+        run: ./gradlew assembleRelease -Pinclude-cast
+        env:
+          storeFileBase64: ${{ secrets.SIGNING_KEY }}
+          storePassword: ${{ secrets.KEY_STORE_PASSWORD }}
+          keyAlias: ${{ secrets.ALIAS }}
+          keyPassword: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls app/build/outputs/apk/release/
+          TAG="build-${{ needs.check.outputs.short }}"
+          gh release delete "$TAG" --cleanup-tag --yes --repo "${{ github.repository }}" || true
+          gh release create "$TAG" \
+            app/build/outputs/apk/release/*universal*.apk \
+            app/build/outputs/apk/release/*arm64-v8a*.apk \
+            --repo "${{ github.repository }}" \
+            --title "Animiru ${{ needs.check.outputs.short }}" \
+            --notes "Commit upstream: https://github.com/${{ env.UPSTREAM }}/commit/${{ needs.check.outputs.sha }}"
