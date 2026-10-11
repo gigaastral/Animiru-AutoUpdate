@@ -2,11 +2,15 @@ name: Auto build Animiru
 
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '*/10 * * * *'
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: auto-build
+  cancel-in-progress: false
 
 env:
   UPSTREAM: animiruorg/Animiru
