@@ -79,10 +79,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="r${{ needs.check.outputs.count }}"
-          ls app/build/outputs/apk/preview/
-          cp app/build/outputs/apk/preview/app-universal-preview.apk "Animiru-$TAG.apk"
+          OUT=app/build/outputs/apk/preview
+          ls $OUT
+          cp "$OUT/app-universal-preview.apk" "Animiru-$TAG.apk"
+          for abi in arm64-v8a armeabi-v7a x86 x86_64; do
+            cp "$OUT/app-$abi-preview.apk" "Animiru-$abi-$TAG.apk"
+          done
           gh release delete "$TAG" --cleanup-tag --yes --repo "${{ github.repository }}" || true
           gh release create "$TAG" "Animiru-$TAG.apk" \
             --repo "${{ github.repository }}" \
             --title "Animiru $TAG" --latest \
             --notes "Commit upstream: https://github.com/${{ env.UPSTREAM }}/commit/${{ needs.check.outputs.sha }}"
+          gh release upload "$TAG" \
+            "Animiru-arm64-v8a-$TAG.apk" \
+            "Animiru-armeabi-v7a-$TAG.apk" \
+            "Animiru-x86-$TAG.apk" \
+            "Animiru-x86_64-$TAG.apk" \
+            --repo "${{ github.repository }}"
